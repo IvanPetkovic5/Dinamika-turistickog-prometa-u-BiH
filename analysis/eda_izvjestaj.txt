@@ -1,0 +1,20 @@
+EDA IZVJEŠTAJ
+==================================================
+Broj obrađenih PDF izvještaja: 8
+Vremenski raspon: 2018-2025
+Broj zapisa po zemljama: 537
+Broj jedinstvenih zemalja: 73
+
+Top 10 zemalja po ukupnim noćenjima:
+zemlja
+Hoteli i sličan smještaj                       31067530.0
+Hoteli smještaj i sličan                       15189624.0
+Hrvatska                                        2284470.0
+Srbija                                          1941763.0
+Ostali smještaj                                 1347296.0
+Turska                                          1160075.0
+Slovenija                                        949907.0
+Odmarališta i slični objekti za kraći odmor      898258.0
+Saudijska Arabija                                820895.0
+Njemačka                                         777894.0
+Name: nocenja, dtype: float64
