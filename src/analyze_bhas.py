@@ -19,6 +19,17 @@ os.makedirs(PLOTS_DIR, exist_ok=True)
 
 BROJ_RE = re.compile(r"^-?\d[\d.,]*$|^-$")
 
+# Jednostavni rječnik za spajanje identičnih zemalja koje se različito pišu
+ALIASI_ZEMALJA = {
+    "švajcarska": "Švicarska",
+    "švajcarska (uključujući i lihtenštajn)": "Švicarska",
+    "švicarska (uključujući i lihtenštajn)": "Švicarska",
+    "sjeverna makedonija": "Sjeverna Makedonija",
+    "makedonija b.j.r.": "Sjeverna Makedonija",
+    "sad": "SAD",
+    "sjedinjene američke države": "SAD",
+}
+
 
 def je_broj(t):
   return bool(BROJ_RE.match(t.strip()))
@@ -27,7 +38,15 @@ def je_broj(t):
 def ba_broj(t):
   if t is None:
     return None
-  t = str(t).strip().replace(" ", "").replace(".", "").replace(",", ".")
+  # FIX: Dodato čišćenje nevidljivih unicode razmaka (\xa0 i \u202f)
+  t = (
+      str(t)
+      .strip()
+      .replace("\u202f", "")
+      .replace("\xa0", "")
+      .replace(" ", "")
+  )
+  t = t.replace(".", "").replace(",", ".")
   try:
     return float(t)
   except ValueError:
@@ -40,6 +59,13 @@ def izvuci_godinu_mjesec(putanja):
   if m:
     return int(m.group(1)), int(m.group(2))
   return None, None
+
+
+def normalizuj_zemlju(naziv):
+  # FIX: Uklanjanje fusnota poput "Hrvatska 1)" -> "Hrvatska"
+  cisto = re.sub(r"\d\)\s*$", "", naziv).strip()
+  kljuc = cisto.lower()
+  return ALIASI_ZEMALJA.get(kljuc, cisto)
 
 
 def redovi_iz_pdfa(putanja):
@@ -68,37 +94,56 @@ def parsiraj_pdf(putanja):
     puni_naziv = " ".join(tekst_dijelovi).strip()
     etiketa = puni_naziv.lower()
 
+    # --- Zbirni podaci ---
     if len(brojevi) >= 2:
       if "domac" in etiketa and dolasci_domaci is None:
         dolasci_domaci = ba_broj(brojevi[0])
-        nocenja_domaci = ba_broj(brojevi[-1])
+        # Ako ima više brojeva, noćenja su na indeksu 3 ili 4, inače zadnji
+        nocenja_domaci = (
+            ba_broj(brojevi[4]) if len(brojevi) >= 5 else ba_broj(brojevi[-1])
+        )
       elif "stran" in etiketa and dolasci_strani is None:
         dolasci_strani = ba_broj(brojevi[0])
-        nocenja_strani = ba_broj(brojevi[-1])
+        nocenja_strani = (
+            ba_broj(brojevi[4]) if len(brojevi) >= 5 else ba_broj(brojevi[-1])
+        )
 
+    # --- Podaci po zemljama ---
     if (
-        len(brojevi) >= 2
+        len(brojevi) >= 5  # Tražimo bar 5 brojeva da bismo bili sigurni u kolone
         and puni_naziv
         and not any(
-            k in etiketa for k in ["ukupno", "domaci", "strani", "zemlja", "udio"]
+            k in etiketa
+            for k in [
+                "ukupno",
+                "domaci",
+                "strani",
+                "zemlja",
+                "udio",
+                "ostale",
+            ]
         )
     ):
 
-      dolasci = ba_broj(brojevi[0])
-      nocenja = ba_broj(brojevi[-1])
+      naziv_zemlje = normalizuj_zemlju(puni_naziv)
+
+      # FIX: Tačne kolone (0/1 za dolaske, 4 za noćenja) umjesto uzimanja brojevi[-1]
+      dolasci = ba_broj(brojevi[1]) if len(brojevi) >= 6 else ba_broj(brojevi[0])
+      nocenja = ba_broj(brojevi[4]) if len(brojevi) >= 5 else ba_broj(brojevi[1])
 
       prosjek_dani = None
       if dolasci and nocenja and dolasci > 0:
         prosjek_dani = round(nocenja / dolasci, 2)
 
-      list_zemalja.append({
-          "godina": godina,
-          "mjesec": mjesec,
-          "zemlja": puni_naziv,
-          "dolasci": dolasci,
-          "nocenja": nocenja,
-          "prosjecan_boravak": prosjek_dani,
-      })
+      if nocenja is not None:
+        list_zemalja.append({
+            "godina": godina,
+            "mjesec": mjesec,
+            "zemlja": naziv_zemlje,
+            "dolasci": dolasci,
+            "nocenja": nocenja,
+            "prosjecan_boravak": prosjek_dani,
+        })
 
   dolasci_ukupno = None
   nocenja_ukupno = None
@@ -144,17 +189,37 @@ def main():
   df_zbirno.to_csv(SUMMARY_CSV, index=False, encoding="utf-8-sig")
   df_zemlje.to_csv(ZEMLJE_CSV, index=False, encoding="utf-8-sig")
 
+  # NOVI GRAFIK: Horizontalni Bar Plot za Top 10 zemalja
   if not df_zemlje.empty:
-    top_zemlje = df_zemlje.groupby("zemlja")["nocenja"].sum().nlargest(5)
+    top10_zemlje = (
+        df_zemlje.groupby("zemlja")["nocenja"]
+        .sum()
+        .nlargest(10)
+        .sort_values(ascending=True)
+    )
 
-    plt.figure(figsize=(8, 8))
-    plt.pie(top_zemlje, labels=top_zemlje.index, autopct="%1.1f%%")
-    plt.title("Top 5 zemalja po broju noćenja")
+    plt.figure(figsize=(10, 6))
+    bars = plt.barh(top10_zemlje.index, top10_zemlje.values, color="#2b5c8f")
+    plt.title("Top 10 zemalja po ukupnom broju noćenja")
+    plt.xlabel("Broj noćenja")
+    plt.grid(axis="x", linestyle="--", alpha=0.5)
+
+    # Dodavanje brojki na kraju svakog stuba
+    for bar in bars:
+      width = bar.get_width()
+      plt.text(
+          width + (width * 0.01),
+          bar.get_y() + bar.get_height() / 2,
+          f"{int(width):,}",
+          va="center",
+          fontsize=9,
+      )
+
     plt.tight_layout()
-    plt.savefig(os.path.join(PLOTS_DIR, "top_zemlje_pie.png"))
+    plt.savefig(os.path.join(PLOTS_DIR, "top10_zemlje_bar.png"))
     plt.close()
 
-  print("\nProces završen. Sačuvani CSV fajlovi.")
+  print("\nProces završen. Sačuvani CSV fajlovi i novi grafik!")
 
 
 if __name__ == "__main__":
