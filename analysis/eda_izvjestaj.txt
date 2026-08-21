@@ -1,9 +1,19 @@
-EDA IZVJEŠTAJ
-==================================================
+EDA IZVJEŠTAJ - Analiza Turističkog Prometa BiH
+============================================================
 Broj obrađenih PDF izvještaja: 8
 Vremenski raspon: 2018-2025
-Broj zapisa po zemljama: 537
-Broj jedinstvenih zemalja: 73
+Dataset 'po zemljama': 537 redova x 8 kolona
+Broj jedinstvenih zemalja porijekla: 73
+
+Opisna statistika (noćenja po zemlji):
+count         537
+mean      119,336
+std       451,921
+min            45
+25%         3,520
+50%        14,321
+75%        46,598
+max     3,824,958
 
 Top 10 zemalja po ukupnim noćenjima:
 zemlja
