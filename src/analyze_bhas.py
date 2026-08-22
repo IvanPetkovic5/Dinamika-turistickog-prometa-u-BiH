@@ -4,9 +4,12 @@ import re
 import unicodedata
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
 import pdfplumber
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
 
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(SRC_DIR)
@@ -23,7 +26,150 @@ os.makedirs(PLOTS_DIR, exist_ok=True)
 plt.rcParams["figure.figsize"] = (10, 6)
 plt.rcParams["axes.grid"] = True
 plt.rcParams["grid.alpha"] = 0.25
-plt.rcParams["font.size"] = 11
+plt.rcParams["font.size"] = 12
+plt.rcParams["axes.labelsize"] = 13
+plt.rcParams["axes.titlesize"] = 14
+plt.rcParams["xtick.labelsize"] = 11
+plt.rcParams["ytick.labelsize"] = 11
+
+
+def razmakni_labele(
+    ax,
+    tacke_x,
+    tacke_y,
+    labele,
+    fontsize=7,
+    offset_pocetni=14,
+    iteracije=1500,
+    korak=0.9,
+    padding=3.0,
+    min_pomak_za_liniju=6.0,
+):
+    """Force-based raspoređivanje labela u piksel-koordinatama, da se izbjegne preklapanje na scatter grafu."""
+    fig = ax.figure
+    fig.canvas.draw()
+
+    trans = ax.transData
+    trans_inv = ax.transData.inverted()
+
+    n = len(labele)
+    tacke_px = np.array(
+        [trans.transform((x, y)) for x, y in zip(tacke_x, tacke_y)]
+    )
+
+    renderer = fig.canvas.get_renderer()
+    sirine, visine = [], []
+    for lab in labele:
+        t = ax.text(0, 0, lab, fontsize=fontsize, alpha=0)
+        bbox = t.get_window_extent(renderer=renderer)
+        sirine.append(bbox.width + padding)
+        visine.append(bbox.height + padding)
+        t.remove()
+    sirine = np.array(sirine)
+    visine = np.array(visine)
+
+    poluprecnik_tacke = 7.0
+    bbox_axes = ax.get_window_extent()
+    margina = 4.0
+
+    zlatni_ugao = np.pi * (3 - np.sqrt(5))
+    label_px = tacke_px.copy().astype(float)
+    for i in range(n):
+        ugao = i * zlatni_ugao
+        label_px[i, 0] += offset_pocetni * np.cos(ugao)
+        label_px[i, 1] += offset_pocetni * np.sin(ugao)
+
+    for it in range(iteracije):
+        pomjeraji = np.zeros_like(label_px)
+        hladjenje = max(0.25, 1.0 - it / iteracije)
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                dx = label_px[i, 0] - label_px[j, 0]
+                dy = label_px[i, 1] - label_px[j, 1]
+                preklop_x = (sirine[i] + sirine[j]) / 2 - abs(dx)
+                preklop_y = (visine[i] + visine[j]) / 2 - abs(dy)
+                if preklop_x > 0 and preklop_y > 0:
+                    if preklop_x < preklop_y:
+                        sila = preklop_x * korak * hladjenje
+                        smjer = 1 if dx >= 0 else -1
+                        pomjeraji[i, 0] += smjer * sila / 2
+                        pomjeraji[j, 0] -= smjer * sila / 2
+                    else:
+                        sila = preklop_y * korak * hladjenje
+                        smjer = 1 if dy >= 0 else -1
+                        pomjeraji[i, 1] += smjer * sila / 2
+                        pomjeraji[j, 1] -= smjer * sila / 2
+
+            for j in range(n):
+                if j == i:
+                    continue
+                dx = label_px[i, 0] - tacke_px[j, 0]
+                dy = label_px[i, 1] - tacke_px[j, 1]
+                dist = np.hypot(dx, dy)
+                min_dist = poluprecnik_tacke + max(sirine[i], visine[i]) / 2
+                if dist < min_dist and dist > 1e-6:
+                    sila = (min_dist - dist) * korak * 0.6 * hladjenje
+                    pomjeraji[i, 0] += (dx / dist) * sila
+                    pomjeraji[i, 1] += (dy / dist) * sila
+
+        for i in range(n):
+            nazad = (tacke_px[i] - label_px[i]) * 0.01
+            pomjeraji[i] += nazad
+
+        label_px += pomjeraji
+
+        for i in range(n):
+            pola_w, pola_h = sirine[i] / 2, visine[i] / 2
+            label_px[i, 0] = np.clip(
+                label_px[i, 0],
+                bbox_axes.x0 + pola_w + margina,
+                bbox_axes.x1 - pola_w - margina,
+            )
+            label_px[i, 1] = np.clip(
+                label_px[i, 1],
+                bbox_axes.y0 + pola_h + margina,
+                bbox_axes.y1 - pola_h - margina,
+            )
+
+        if np.abs(pomjeraji).max() < 0.02:
+            break
+
+    finalne_pozicije = []
+    for i, lab in enumerate(labele):
+        lx, ly = trans_inv.transform(label_px[i])
+        finalne_pozicije.append((lx, ly))
+
+        pomak_px = np.hypot(*(label_px[i] - tacke_px[i]))
+        arrowprops = None
+        if pomak_px > min_pomak_za_liniju:
+            arrowprops = dict(
+                arrowstyle="-",
+                color="#999999",
+                lw=0.6,
+                alpha=0.7,
+                shrinkA=2,
+                shrinkB=4,
+            )
+
+        ax.annotate(
+            lab,
+            xy=(tacke_x[i], tacke_y[i]),
+            xycoords="data",
+            xytext=(lx, ly),
+            textcoords="data",
+            fontsize=fontsize,
+            ha="center",
+            va="center",
+            bbox=dict(
+                boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.8
+            ),
+            arrowprops=arrowprops,
+            zorder=5,
+        )
+
+    return finalne_pozicije
+
 
 BROJ_POLJE_RE = re.compile(r"^-?\d[\d.,]*$|^-$")
 
@@ -36,8 +182,10 @@ def ba_broj(tekst):
     if tekst is None:
         return None
     t = str(tekst).strip()
-    t = t.replace("\u202f", " ").replace("\xa0", " ")
-    t = t.replace(" ", "").replace(".", "").replace(",", ".")
+    # Uklonjen je tretman neprekidajućih razmaka (\xa0 i \u202f)
+    t = t.replace(" ", "")
+    t = t.replace(".", "")
+    t = t.replace(",", ".")
     try:
         return float(t)
     except ValueError:
@@ -87,19 +235,19 @@ NIJE_ZEMLJA = {
 }
 
 
+def normalizuj_zemlju(naziv):
+    n = naziv.strip()
+    kljuc = n.lower()
+    # Uklonjeno čišćenje fusnota poput " 1)" s kraja teksta
+    return ALIASI_ZEMALJA.get(kljuc, n.strip())
+
+
 def _normalizuj_tekst(tekst):
     if not tekst:
         return ""
     tekst = tekst.strip().lower()
     nfkd = unicodedata.normalize("NFD", tekst)
     return "".join([c for c in nfkd if not unicodedata.combining(c)])
-
-
-def normalizuj_zemlju(naziv):
-    n = naziv.strip()
-    kljuc = n.lower()
-    kljuc = re.sub(r"\s*\d\)\s*$", "", kljuc).strip()
-    return ALIASI_ZEMALJA.get(kljuc, n.strip())
 
 
 def redovi_tabele_po_koordinatama(putanja_pdf):
@@ -139,6 +287,7 @@ def redovi_tabele_po_koordinatama(putanja_pdf):
 
                 for prev, cur in zip(linija_rijeci, linija_rijeci[1:]):
                     gap = cur["x0"] - prev["x1"]
+
                     zadnji_tekst = (
                         trenutno_polje.strip().split()[-1]
                         if trenutno_polje.strip()
@@ -196,9 +345,7 @@ def parsiraj_pdf(putanja_pdf):
     godina, mjesec = izvuci_godinu_mjesec(putanja_pdf)
     dolasci_domaci = nocenja_domaci = dolasci_strani = nocenja_strani = None
 
-    svi_redovi = redovi_tabele_po_koordinatama(putanja_pdf)
-
-    for polja in svi_redovi:
+    for polja in redovi_tabele_po_koordinatama(putanja_pdf):
         if not polja:
             continue
 
@@ -229,10 +376,10 @@ def parsiraj_pdf(putanja_pdf):
         if nocenja_domaci is not None and nocenja_strani is not None
         else None
     )
+
+    # Uklonjena provjera da li je dolasci_ukupno != 0
     prosjecan_boravak = (
-        round(nocenja_ukupno / dolasci_ukupno, 2)
-        if dolasci_ukupno and nocenja_ukupno
-        else None
+        round(nocenja_ukupno / dolasci_ukupno, 2) if dolasci_ukupno else None
     )
 
     zbirni_red = {
@@ -256,7 +403,7 @@ def parsiraj_pdf(putanja_pdf):
     redovi_zemalja = []
     nije_zemlja_norm = {_normalizuj_tekst(z) for z in NIJE_ZEMLJA}
 
-    for polja in svi_redovi:
+    for polja in redovi_tabele_po_koordinatama(putanja_pdf):
         rez = parsiraj_red_zemlje_iz_polja(polja)
         if rez is None:
             continue
@@ -337,7 +484,7 @@ def main():
     df_zemlje.to_csv(DATASET_CSV, index=False, encoding="utf-8-sig")
 
     eda_linije = [
-        "EDA IZVJEŠTAJ - Analiza Turističkog Prometa BiH",
+        "EDA IZVJEŠTAJ - za sekciju 'Dataset & metodologija'",
         "=" * 60,
         f"Broj obrađenih PDF izvještaja: {len(putanje)}",
         (
@@ -353,12 +500,12 @@ def main():
             f" {df_zemlje['zemlja'].nunique()}"
         ),
         "",
-        "Opisna statistika (noćenja po zemlji):",
+        "Opisna statistika (noćenja po zemlji, svi zapisi):",
         df_zemlje["nocenja"]
         .describe()
         .to_string(float_format=lambda x: f"{x:,.0f}"),
         "",
-        "Top 10 zemalja po ukupnim noćenjima:",
+        "Top 10 zemalja po ukupnim (zbirnim) noćenjima u datasetu:",
         str(
             df_zemlje.groupby("zemlja")["nocenja"]
             .sum()
@@ -442,90 +589,184 @@ def main():
         )
         plt.close(fig)
 
-    if not df_zemlje.empty:
-        top10_zemlje = (
-            df_zemlje.groupby("zemlja")["nocenja"]
-            .sum()
-            .nlargest(10)
-            .sort_values(ascending=True)
-        )
+    if not df_godisnji.empty:
+        najnovija_godina = df_godisnji["godina"].max()
+        df_klaster = df_zemlje[
+            (df_zemlje["godina"] == najnovija_godina)
+            & (df_zemlje["mjesec_kraja"] == 12)
+        ].copy()
 
-        fig, ax = plt.subplots(figsize=(10, 6))
-        bars = ax.barh(
-            top10_zemlje.index,
-            top10_zemlje.values / 1e3,
-            color="#2b5c8f",
-            alpha=0.85,
-        )
-        ax.set_title(
-            "Slika 2: Top 10 zemalja po ukupnom broju noćenja (u hiljadama)",
-            fontsize=13,
-            pad=12,
-        )
-        ax.set_xlabel("Broj noćenja (u hiljadama)")
-        ax.set_ylabel("Zemlja")
+        if df_klaster.empty:
+            df_klaster = df_zemlje[
+                df_zemlje["godina"] == df_zemlje["godina"].max()
+            ].copy()
 
-        for bar in bars:
-            width = bar.get_width()
-            ax.text(
-                width + (width * 0.01),
-                bar.get_y() + bar.get_height() / 2,
-                f"{width:,.1f}k",
-                va="center",
-                fontsize=9,
+        df_klaster = df_klaster.dropna(
+            subset=["nocenja", "struktura_%", "prosjecan_boravak"]
+        )
+        df_klaster = df_klaster[df_klaster["struktura_%"] >= 0.05].copy()
+
+        if len(df_klaster) >= 6:
+            df_klaster["log_struktura"] = np.log10(df_klaster["struktura_%"])
+            features = df_klaster[["log_struktura", "prosjecan_boravak"]].copy()
+            scaler = StandardScaler()
+            X = scaler.fit_transform(features)
+
+            k = 3
+            km = KMeans(n_clusters=k, random_state=42, n_init=10)
+            df_klaster["klaster"] = km.fit_predict(X)
+
+            opis = df_klaster.groupby("klaster")[
+                ["struktura_%", "prosjecan_boravak"]
+            ].mean().sort_values("struktura_%")
+            redoslijed = opis.index.tolist()
+            imena_klastera = {
+                redoslijed[0]: "Mala evropska tržišta",
+                redoslijed[1]: "Veliki/regionalni izvori",
+                redoslijed[2]: "Daleka, duga putovanja",
+            }
+            if (
+                opis.loc[redoslijed[1], "prosjecan_boravak"]
+                > opis.loc[redoslijed[2], "prosjecan_boravak"]
+            ):
+                imena_klastera[redoslijed[1]], imena_klastera[redoslijed[2]] = (
+                    imena_klastera[redoslijed[2]],
+                    imena_klastera[redoslijed[1]],
+                )
+
+            fig, ax = plt.subplots(figsize=(14, 8.5))
+            boje = ["#2ca02c", "#d62728", "#9467bd"]
+
+            nocenja_min = df_klaster["nocenja"].min()
+            nocenja_max = df_klaster["nocenja"].max()
+
+            if nocenja_max > nocenja_min:
+
+                def velicina(n):
+                    return 40 + 330 * (
+                        np.sqrt(n - nocenja_min)
+                        / np.sqrt(nocenja_max - nocenja_min)
+                    )
+
+            else:
+
+                def velicina(n):
+                    return 120
+
+            for i, kl in enumerate(redoslijed):
+                sub = df_klaster[df_klaster["klaster"] == kl]
+                ax.scatter(
+                    sub["struktura_%"],
+                    sub["prosjecan_boravak"],
+                    s=velicina(sub["nocenja"]),
+                    color=boje[i],
+                    label=imena_klastera[kl],
+                    edgecolor="white",
+                    linewidth=1.2,
+                    alpha=0.78,
+                    zorder=3,
+                )
+
+            ax.set_xscale("log")
+            ax.set_xlim(0.04, 20)
+            ax.set_xticks([0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20])
+            ax.xaxis.set_major_formatter(
+                mticker.FuncFormatter(lambda x, _: f"{x:g}%")
+            )
+            ax.xaxis.set_minor_formatter(mticker.NullFormatter())
+
+            ax.axvline(
+                1,
+                color="#777777",
+                linestyle="--",
+                linewidth=0.8,
+                alpha=0.45,
+                zorder=1,
+            )
+            ax.axhline(
+                2,
+                color="#777777",
+                linestyle="--",
+                linewidth=0.8,
+                alpha=0.45,
+                zorder=1,
             )
 
-        fig.tight_layout()
-        fig.savefig(
-            os.path.join(PLOTS_DIR, "slika2_top10_zemlje.png"), dpi=300
-        )
-        plt.close(fig)
+            ax.set_title(
+                f"Slika 2: Segmentacija emitivnih tržišta turista ({najnovija_godina:.0f}.)",
+                fontsize=16,
+                fontweight="bold",
+                pad=16,
+            )
+            ax.set_xlabel(
+                "Udio u noćenjima stranih turista (%) — logaritamska skala",
+                fontsize=12,
+                labelpad=10,
+            )
+            ax.set_ylabel(
+                "Prosječan broj noćenja po dolasku", fontsize=12, labelpad=10
+            )
 
-    if not df_zemlje.empty:
-        ukupna_nocenja_zemalja = df_zemlje.groupby("zemlja")["nocenja"].sum()
-        top5 = ukupna_nocenja_zemalja.nlargest(5)
-        ostalo = pd.Series(
-            {"Ostale zemlje": ukupna_nocenja_zemalja.sum() - top5.sum()}
-        )
-        podaci_pie = pd.concat([top5, ostalo])
+            ax.grid(True, which="major", axis="both", alpha=0.18, linewidth=0.8)
+            ax.grid(True, which="minor", axis="x", alpha=0.08, linewidth=0.5)
 
-        fig, ax = plt.subplots(figsize=(8, 8))
-        colors = [
-            "#1f77b4",
-            "#ff7f0e",
-            "#2ca02c",
-            "#d62728",
-            "#9467bd",
-            "#7f7f7f",
-        ]
+            legenda = ax.legend(
+                title="Klasteri (KMeans, k=3)",
+                frameon=True,
+                facecolor="white",
+                edgecolor="#dddddd",
+                framealpha=0.95,
+                loc="upper left",
+                fontsize=10,
+                title_fontsize=10.5,
+            )
+            legenda.get_frame().set_linewidth(0.8)
 
-        wedges, texts, autotexts = ax.pie(
-            podaci_pie,
-            labels=podaci_pie.index,
-            autopct="%1.1f%%",
-            startangle=140,
-            colors=colors,
-            pctdistance=0.75,
-        )
+            razmakni_labele(
+                ax,
+                df_klaster["struktura_%"].values,
+                df_klaster["prosjecan_boravak"].values,
+                df_klaster["zemlja"].values,
+                fontsize=8,
+                korak=0.85,
+                iteracije=2500,
+                offset_pocetni=13,
+                min_pomak_za_liniju=7.0,
+            )
 
-        for autotext in autotexts:
-            autotext.set_color("white")
-            autotext.set_weight("bold")
+            ax.text(
+                0.985,
+                0.025,
+                "Veličina tačke ∝ broj noćenja",
+                transform=ax.transAxes,
+                ha="right",
+                va="bottom",
+                fontsize=9,
+                style="italic",
+                color="#555555",
+            )
 
-        ax.set_title(
-            "Slika 3: Struktura noćenja stranih turista (Top 5 vs Ostale)",
-            fontsize=13,
-            pad=12,
-        )
-        fig.tight_layout()
-        fig.savefig(
-            os.path.join(PLOTS_DIR, "slika3_struktura_top_zemalja.png"), dpi=300
-        )
-        plt.close(fig)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            ax.tick_params(axis="both", which="major", labelsize=10)
+            ax.margins(x=0.02, y=0.08)
 
-    print(
-        "Generisani CSV fajlovi, EDA izvještaj i 3 grafikona u 'analysis/plots/'."
-    )
+            fig.tight_layout()
+
+            # Uklonjen je bbox_inches="tight" pri čuvanju klaster grafikona
+            fig.savefig(
+                os.path.join(PLOTS_DIR, "slika2_klasteri_zemalja.png"), dpi=300
+            )
+
+            plt.close(fig)
+
+            df_klaster.to_csv(
+                os.path.join(OUT_DIR, "klasteri_zemalja.csv"),
+                index=False,
+                encoding="utf-8-sig",
+            )
+
+    print("\n--- ZAVRŠENO USPJEŠNO ---")
 
 
 if __name__ == "__main__":

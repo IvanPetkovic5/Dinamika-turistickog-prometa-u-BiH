@@ -1,11 +1,11 @@
-EDA IZVJEŠTAJ - Analiza Turističkog Prometa BiH
+EDA IZVJEŠTAJ - za sekciju 'Dataset & metodologija'
 ============================================================
 Broj obrađenih PDF izvještaja: 8
 Vremenski raspon: 2018-2025
 Dataset 'po zemljama': 537 redova x 8 kolona
 Broj jedinstvenih zemalja porijekla: 73
 
-Opisna statistika (noćenja po zemlji):
+Opisna statistika (noćenja po zemlji, svi zapisi):
 count         537
 mean      119,336
 std       451,921
@@ -15,7 +15,7 @@ min            45
 75%        46,598
 max     3,824,958
 
-Top 10 zemalja po ukupnim noćenjima:
+Top 10 zemalja po ukupnim (zbirnim) noćenjima u datasetu:
 zemlja
 Hoteli i sličan smještaj                       31067530.0
 Hoteli smještaj i sličan                       15189624.0
