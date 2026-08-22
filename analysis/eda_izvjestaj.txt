@@ -5,17 +5,38 @@ Vremenski raspon: 2018-2025
 Dataset 'po zemljama': 537 redova x 8 kolona
 Broj jedinstvenih zemalja porijekla: 73
 
-Opisna statistika (noćenja po zemlji, svi zapisi):
-count         537
-mean      119,336
-std       451,921
-min            45
-25%         3,520
-50%        14,321
-75%        46,598
-max     3,824,958
+PROVJERI INTEGRITETA PODATAKA:
+Duplirani redovi u datasetu zemalja: 0
+Broj nedostajućih vrijednosti po kolonama (df_zemlje):
+fajl                  0
+godina                0
+mjesec_kraja          0
+zemlja                0
+dolasci               0
+nocenja               0
+struktura_%          78
+prosjecan_boravak    78
 
-Top 10 zemalja po ukupnim (zbirnim) noćenjima u datasetu:
+PRVIH 5 REDOVA (df_zemlje.head()):
+                 fajl  godina  mjesec_kraja     zemlja  dolasci  nocenja  struktura_%  prosjecan_boravak
+0  TUR_02_2018_12.pdf    2018            12   Albanija   5090.0   8940.0          0.4                1.8
+1  TUR_02_2018_12.pdf    2018            12   Austrija  26560.0  51560.0          2.4                1.9
+2  TUR_02_2018_12.pdf    2018            12    Belgija   6566.0  15616.0          0.7                2.4
+3  TUR_02_2018_12.pdf    2018            12   Bugarska   6685.0  12092.0          0.6                1.8
+4  TUR_02_2018_12.pdf    2018            12  Crna Gora  16923.0  36847.0          1.7                2.2
+
+OPISNA STATISTIKA (df_zemlje.describe()):
+        godina  mjesec_kraja      dolasci      nocenja  struktura_%  prosjecan_boravak
+count   537.00        537.00       537.00       537.00       459.00             459.00
+mean  2,021.45         12.00    56,347.60   119,336.07         1.63               2.34
+std       2.30          0.00   219,851.25   451,920.62         3.04               0.66
+min   2,018.00         12.00        15.00        45.00         0.00               1.10
+25%   2,019.00         12.00     1,529.00     3,520.00         0.20               2.00
+50%   2,021.00         12.00     6,566.00    14,321.00         0.60               2.30
+75%   2,023.00         12.00    17,007.00    46,598.00         1.55               2.50
+max   2,025.00         12.00 1,888,026.00 3,824,958.00        27.90               9.50
+
+TOP 10 ZEMALJA PO UKUPNIM NOĆENJIMA:
 zemlja
 Hoteli i sličan smještaj                       31067530.0
 Hoteli smještaj i sličan                       15189624.0
